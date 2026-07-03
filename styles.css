@@ -1104,3 +1104,61 @@ body {
         transform: translateY(0);
     }
 }
+
+/* Card Dimming and Processing Highlight states */
+.card {
+    transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.card.dimmed {
+    opacity: 0.25;
+    filter: grayscale(30%) blur(0.3px);
+    pointer-events: none;
+    transform: scale(0.97);
+}
+
+.card-core.processing {
+    border-color: var(--color-core);
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.35);
+    transform: scale(1.02);
+    z-index: 5;
+}
+
+.card-bot.processing {
+    border-color: var(--color-bot);
+    box-shadow: 0 0 30px rgba(139, 92, 246, 0.35);
+    transform: scale(1.02);
+    z-index: 5;
+}
+
+.card-dash.processing {
+    border-color: var(--color-dash);
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.35);
+    transform: scale(1.02);
+    z-index: 5;
+}
+
+.card-updater.processing {
+    border-color: var(--color-updater);
+    box-shadow: 0 0 30px rgba(245, 158, 11, 0.35);
+    transform: scale(1.02);
+    z-index: 5;
+}
+
+/* Connections Path glow flow states */
+.connections-canvas path {
+    opacity: 0.15;
+    transition: opacity 0.4s ease, stroke-width 0.4s ease;
+}
+
+.connections-canvas path.active-flow {
+    opacity: 0.9;
+    stroke-width: 4;
+    animation: strokeFlow 0.8s linear infinite;
+}
+
+@keyframes strokeFlow {
+    to {
+        stroke-dashoffset: -20;
+    }
+}

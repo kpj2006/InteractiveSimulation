@@ -71,6 +71,8 @@ This skill governs contributor AI agent behavior.
 let activeScenario = 'a';
 let scenarioStep = 0;
 let connectionsCalculated = false;
+let autoplayInterval = null;
+let isAutoplay = false;
 
 // Scenarios Timeline Actions
 const SCENARIOS = {
@@ -81,6 +83,7 @@ const SCENARIOS = {
             {
                 label: "Submit User Query",
                 run: (engine) => {
+                    engine.focusCards(['bot']);
                     engine.addLog("User submitted Discord query in #ai-chat: 'How do I deploy this template to production?'", "system");
                     engine.simulateDiscordUserMsg("How do I deploy this template to production?");
                     engine.setCardActive("bot", true);
@@ -105,6 +108,7 @@ const SCENARIOS = {
             {
                 label: "Resolve Decision (Gap Flow or Clarify)",
                 run: (engine, subOption) => {
+                    engine.focusCards(['bot']);
                     // Hide options
                     document.getElementById("prompt-choices").style.display = "none";
                     
@@ -153,6 +157,7 @@ const SCENARIOS = {
             {
                 label: "Analyze Open Pull Requests",
                 run: (engine) => {
+                    engine.focusCards(['dash']);
                     engine.addLog("PR Dashboard: Fetching open PRs from Github API...", "info");
                     engine.addLog("PR Dashboard: Found 2 overlapping PRs: PR #41 (Add Direct PostgreSQL Client) and PR #42 (Setup Prisma ORM)", "info");
                     engine.setCardActive("dash", true);
@@ -197,6 +202,7 @@ const SCENARIOS = {
             {
                 label: "Poll Signals & Chats",
                 run: (engine) => {
+                    engine.focusCards(['updater']);
                     engine.addLog("Skill Updater: Fetching unread maintainer Discord conversations...", "info");
                     engine.addLog("Skill Updater: Aggregating active inputs: 1 Discord thread, 1 Gap Signal, 1 Staleness Signal.", "info");
                     engine.setCardActive("updater", true);
@@ -206,6 +212,7 @@ const SCENARIOS = {
             {
                 label: "Online Semantic Topic Clustering",
                 run: (engine) => {
+                    engine.focusCards(['updater']);
                     engine.addLog("Skill Updater: Running BERTopic Incremental Online Clustering...", "info");
                     engine.setUpdaterStepActive("cluster", "BERTopic: Groups formed");
                     
@@ -218,6 +225,7 @@ const SCENARIOS = {
             {
                 label: "Generate Git Diff Patch",
                 run: (engine) => {
+                    engine.focusCards(['updater']);
                     engine.addLog("Skill Updater: Prompting local Llama3 model with cluster content...", "info");
                     
                     // Display Git Diff Patch preview
@@ -230,11 +238,11 @@ index a3f821d..b59ec42 100644
 --- a/.agent/instructions/setup.md
 +++ b/.agent/instructions/setup.md
 @@ -9,4 +9,5 @@
- - Node.js 18+ (Node 20 recommended)
- - Docker & Docker Compose
-+- AWS App Runner client (optional for production deployments)
+  - Node.js 18+ (Node 20 recommended)
+  - Docker & Docker Compose
+ +- AWS App Runner client (optional for production deployments)
  
- ## Local Development Setup`;
+  ## Local Development Setup`;
  
                     diffText.textContent = patchStr;
                     engine.addLog("Skill Updater: Generated JSON git-patch structure.", "success");
@@ -315,6 +323,39 @@ class SimulationEngine {
 
     clearAllGlows() {
         ['core', 'bot', 'dash', 'updater'].forEach(id => this.setCardActive(id, false));
+    }
+
+    focusCards(cardIds) {
+        const allIds = ['core', 'bot', 'dash', 'updater'];
+        allIds.forEach(id => {
+            const card = document.getElementById(`card-${id}`);
+            if (!card) return;
+            if (cardIds.includes(id)) {
+                card.classList.add("processing");
+                card.classList.remove("dimmed");
+            } else {
+                card.classList.remove("processing");
+                card.classList.add("dimmed");
+            }
+        });
+    }
+
+    clearFocus() {
+        const allIds = ['core', 'bot', 'dash', 'updater'];
+        allIds.forEach(id => {
+            const card = document.getElementById(`card-${id}`);
+            if (card) {
+                card.classList.remove("processing");
+                card.classList.remove("dimmed");
+            }
+        });
+        
+        // Clear active flow on paths
+        const paths = ['core-bot', 'core-dash', 'bot-updater', 'dash-updater', 'updater-core'];
+        paths.forEach(p => {
+            const path = document.getElementById(`path-${p}`);
+            if (path) path.classList.remove("active-flow");
+        });
     }
 
     setUpdaterStepActive(stepId, text) {
@@ -412,12 +453,17 @@ class SimulationEngine {
             return;
         }
 
+        // Highlight the path and focus both elements
+        path.classList.add("active-flow");
+        this.focusCards([fromId, toId]);
+
         packet.style.display = "block";
         
         const pathLength = path.getTotalLength();
         let start = null;
         const duration = 1200; // 1.2s animation speed
 
+        const self = this;
         function step(timestamp) {
             if (!start) start = timestamp;
             const progress = (timestamp - start) / duration;
@@ -433,6 +479,11 @@ class SimulationEngine {
                 requestAnimationFrame(step);
             } else {
                 packet.style.display = "none";
+                path.classList.remove("active-flow");
+                
+                // Focus only the target card after packet arrives
+                self.focusCards([toId]);
+                
                 if (onComplete) onComplete();
             }
         }
@@ -583,6 +634,7 @@ document.querySelector(".scenario-buttons").addEventListener("click", (e) => {
 
 // Reset Simulation Action
 function resetSimulation() {
+    stopAutoplay();
     scenarioStep = 0;
     
     // Reset file edits
@@ -618,7 +670,7 @@ function resetSimulation() {
     // Hide quick choices if visible
     document.getElementById("prompt-choices").style.display = "none";
 
-    engine.addLog(`Scenario ${activeScenario.toUpperCase()} loaded: ${SCENARIOS[activeScenario].name}. Click "Trigger Step" to execute.`, "system");
+    engine.addLog(`Scenario ${activeScenario.toUpperCase()} loaded: ${SCENARIOS[activeScenario].name}. Click "Trigger Step" or "Auto-Play" to execute.`, "system");
 }
 
 document.getElementById("btn-reset").addEventListener("click", resetSimulation);
@@ -628,8 +680,64 @@ document.getElementById("console-clear").addEventListener("click", () => engine.
 
 // Trigger Step Action click
 document.getElementById("btn-trigger-action").addEventListener("click", () => {
+    stopAutoplay();
     runNextStep();
 });
+
+// Autoplay trigger
+document.getElementById("btn-autoplay").addEventListener("click", toggleAutoplay);
+
+// Autoplay functions
+function toggleAutoplay() {
+    if (isAutoplay) {
+        stopAutoplay();
+        engine.addLog("Autoplay paused.", "system");
+    } else {
+        startAutoplay();
+    }
+}
+
+function startAutoplay() {
+    const btn = document.getElementById("btn-autoplay");
+    isAutoplay = true;
+    btn.innerHTML = `<i class="fa-solid fa-pause"></i> Pause`;
+    btn.classList.add("active");
+    
+    runNextStep();
+    
+    autoplayInterval = setInterval(() => {
+        const scenario = SCENARIOS[activeScenario];
+        const steps = scenario.steps;
+        
+        // If choices are open, pause autoplay so user can make a choice!
+        const hasChoicesOpen = document.getElementById("prompt-choices").style.display === "flex";
+        if (hasChoicesOpen) {
+            stopAutoplay();
+            engine.addLog("Autoplay paused. Please select an option in the Skill Bot card to proceed.", "system");
+            return;
+        }
+        
+        if (scenarioStep >= steps.length) {
+            stopAutoplay();
+            return;
+        }
+        
+        runNextStep();
+    }, 3000); // 3 seconds delay between steps
+}
+
+function stopAutoplay() {
+    isAutoplay = false;
+    if (autoplayInterval) {
+        clearInterval(autoplayInterval);
+        autoplayInterval = null;
+    }
+    const btn = document.getElementById("btn-autoplay");
+    if (btn) {
+        btn.innerHTML = `<i class="fa-solid fa-play"></i> Auto-Play`;
+        btn.classList.remove("active");
+    }
+}
 
 // Run next step execution
 function runNextStep() {
